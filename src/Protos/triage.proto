@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package medequity.triage;
+
+service TriageService {
+  rpc AnalyzeSymptoms (SymptomRequest) returns (TriageResult);
+}
+
+message SymptomRequest {
+  repeated string symptom_codes = 1;
+  repeated int32 severities = 2;
+  string age_range = 3;
+  string sex = 4;
+}
+
+message TriageResult {
+  string care_level = 1;
+  float confidence = 2;
+  string explanation = 3;
+}
