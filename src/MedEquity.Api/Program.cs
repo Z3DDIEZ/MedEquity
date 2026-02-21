@@ -47,86 +47,96 @@ app.MapPost("/api/triage/analyze", async (
     TriageService.TriageServiceClient grpcClient,
     MedEquityDbContext db) =>
 {
-    // 1. Create patient session
-    var sessionResult = PatientSession.Create(dto.AgeRange, dto.Sex, dto.Geography);
-    if (!sessionResult.IsSuccess)
-        return Results.BadRequest(new { Error = sessionResult.Error });
-
-    var session = sessionResult.Value!;
-
-    // 2. Validate and create symptoms
-    var symptoms = new List<Symptom>();
-    foreach (var s in dto.Symptoms)
+    try
     {
-        var symptomResult = MedEquity.Core.Entities.Symptom.Create(
-            session.SessionId, s.SymptomCode, s.Severity, s.DurationHours);
-        if (!symptomResult.IsSuccess)
-            return Results.BadRequest(new { Error = symptomResult.Error });
-        symptoms.Add(symptomResult.Value!);
-    }
+        // 1. Create patient session
+        var sessionResult = PatientSession.Create(dto.AgeRange, dto.Sex, dto.Geography);
+        if (!sessionResult.IsSuccess)
+            return Results.BadRequest(new { Error = sessionResult.Error });
 
-    // 3. Call Gemini via gRPC
-    var grpcRequest = new SymptomRequest
-    {
-        AgeRange = dto.AgeRange,
-        Sex = dto.Sex,
-        Geography = dto.Geography,
-    };
-    foreach (var s in dto.Symptoms)
-    {
-        grpcRequest.Symptoms.Add(new Medequity.Triage.SymptomEntry
+        var session = sessionResult.Value!;
+
+        // 2. Validate and create symptoms
+        var symptoms = new List<Symptom>();
+        foreach (var s in dto.Symptoms)
         {
-            SymptomCode = s.SymptomCode,
-            Severity = s.Severity,
-            DurationHours = s.DurationHours,
+            var symptomResult = MedEquity.Core.Entities.Symptom.Create(
+                session.SessionId, s.SymptomCode, s.Severity, s.DurationHours);
+            if (!symptomResult.IsSuccess)
+                return Results.BadRequest(new { Error = symptomResult.Error });
+            symptoms.Add(symptomResult.Value!);
+        }
+
+        // 3. Call Gemini via gRPC
+        var grpcRequest = new SymptomRequest
+        {
+            AgeRange = dto.AgeRange,
+            Sex = dto.Sex,
+            Geography = dto.Geography,
+        };
+        foreach (var s in dto.Symptoms)
+        {
+            grpcRequest.Symptoms.Add(new Medequity.Triage.SymptomEntry
+            {
+                SymptomCode = s.SymptomCode,
+                Severity = s.Severity,
+                DurationHours = s.DurationHours,
+            });
+        }
+
+        var grpcReply = await grpcClient.AnalyzeSymptomsAsync(grpcRequest);
+
+        // 4. Map care_level string to enum
+        var careLevelMap = new Dictionary<string, CareLevel>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["emergency"] = CareLevel.Emergency,
+            ["urgent_care"] = CareLevel.UrgentCare,
+            ["primary_care"] = CareLevel.PrimaryCare,
+            ["telemedicine"] = CareLevel.Telemedicine,
+            ["self_care"] = CareLevel.SelfCare,
+        };
+
+        var careLevel = careLevelMap.GetValueOrDefault(grpcReply.CareLevel, CareLevel.PrimaryCare);
+
+        // 5. Create triage result entity
+        var triageResult = MedEquity.Core.Entities.TriageResult.Create(
+            session.SessionId,
+            careLevel,
+            (decimal)grpcReply.Confidence,
+            grpcReply.Reasoning,
+            grpcReply.ModelVersion);
+
+        if (!triageResult.IsSuccess)
+            return Results.Problem(triageResult.Error);
+
+        // 6. Persist to database
+        db.PatientSessions.Add(session);
+        foreach (var symptom in symptoms)
+            db.Symptoms.Add(symptom);
+        db.TriageResults.Add(triageResult.Value!);
+        await db.SaveChangesAsync();
+
+        // 7. Return structured response
+        return Results.Ok(new
+        {
+            Status = "Success",
+            SessionId = session.SessionId,
+            CareLevel = grpcReply.CareLevel,
+            Confidence = grpcReply.Confidence,
+            PrimaryConcern = grpcReply.PrimaryConcern,
+            Reasoning = grpcReply.Reasoning,
+            RedFlags = grpcReply.RedFlags.ToList(),
+            NextSteps = grpcReply.NextSteps.ToList(),
+            ModelVersion = grpcReply.ModelVersion,
         });
     }
-
-    var grpcReply = await grpcClient.AnalyzeSymptomsAsync(grpcRequest);
-
-    // 4. Map care_level string to enum
-    var careLevelMap = new Dictionary<string, CareLevel>(StringComparer.OrdinalIgnoreCase)
+    catch (Exception ex)
     {
-        ["emergency"] = CareLevel.Emergency,
-        ["urgent_care"] = CareLevel.UrgentCare,
-        ["primary_care"] = CareLevel.PrimaryCare,
-        ["telemedicine"] = CareLevel.Telemedicine,
-        ["self_care"] = CareLevel.SelfCare,
-    };
-
-    var careLevel = careLevelMap.GetValueOrDefault(grpcReply.CareLevel, CareLevel.PrimaryCare);
-
-    // 5. Create triage result entity
-    var triageResult = MedEquity.Core.Entities.TriageResult.Create(
-        session.SessionId,
-        careLevel,
-        (decimal)grpcReply.Confidence,
-        grpcReply.Reasoning,
-        grpcReply.ModelVersion);
-
-    if (!triageResult.IsSuccess)
-        return Results.Problem(triageResult.Error);
-
-    // 6. Persist to database
-    db.PatientSessions.Add(session);
-    foreach (var symptom in symptoms)
-        db.Symptoms.Add(symptom);
-    db.TriageResults.Add(triageResult.Value!);
-    await db.SaveChangesAsync();
-
-    // 7. Return structured response
-    return Results.Ok(new
-    {
-        Status = "Success",
-        SessionId = session.SessionId,
-        CareLevel = grpcReply.CareLevel,
-        Confidence = grpcReply.Confidence,
-        PrimaryConcern = grpcReply.PrimaryConcern,
-        Reasoning = grpcReply.Reasoning,
-        RedFlags = grpcReply.RedFlags.ToList(),
-        NextSteps = grpcReply.NextSteps.ToList(),
-        ModelVersion = grpcReply.ModelVersion,
-    });
+        return Results.Problem(
+            detail: $"{ex.GetType().Name}: {ex.Message}\n{ex.InnerException?.Message}",
+            title: "Triage Analysis Failed",
+            statusCode: 500);
+    }
 })
 .WithName("AnalyzeSymptoms");
 

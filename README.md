@@ -102,18 +102,20 @@ MedEquity follows the **3-Layer B.L.A.S.T.** protocol:
 ```
 MedEquity/
 ├── src/
-│   ├── MedEquity.Api/            # .NET 9 API Gateway & Node Logic
+│   ├── MedEquity.Api/            # .NET 9 API Gateway & Triage Endpoint
 │   ├── MedEquity.Core/           # Domain Models (zero dependencies)
-│   │   ├── Common/               # Result<T> type
-│   │   ├── Entities/             # PatientSession, Symptom, TriageResult
-│   │   └── Enums/                # CareLevel, AutomationTier
 │   ├── MedEquity.Governance/     # Stakeholder Voting Agents
 │   ├── MedEquity.Infrastructure/ # EF Core 9 + PostgreSQL persistence
-│   │   └── Data/                 # DbContext + entity configurations
-│   ├── MedEquity.ML/             # Python Service (gRPC + Gemini)
+│   ├── MedEquity.ML/             # Python Gemini Triage Service (gRPC)
 │   └── Protos/                   # gRPC Contracts (triage.proto)
+├── client/                       # React + TypeScript + Vite frontend
+│   └── src/
+│       ├── pages/                # Home, Triage form, Result display
+│       ├── api.ts                # API client
+│       └── types.ts              # Shared types + SNOMED codes
 ├── tests/
-│   └── MedEquity.Core.Tests/     # xUnit domain entity tests (51 tests)
+│   ├── MedEquity.Core.Tests/     # xUnit domain entity tests (51 tests)
+│   └── test_scenarios.py         # 20 synthetic triage scenarios
 ├── docs/                         # Architectural Documentation
 ├── AG-docs/                      # Agent docs + Planning Log
 ├── docker-compose.yml            # Orchestration
@@ -122,13 +124,13 @@ MedEquity/
 
 ## Development Progress
 
-| Phase                               | Status          | Key Milestone                      |
-| ----------------------------------- | --------------- | ---------------------------------- |
-| **Phase 0**: Foundation & Learning  | Complete        | Docker env, gRPC link working      |
-| **Phase 1**: Centralized Prototype  | **In Progress** | Domain models + DB schema complete |
-| **Phase 2**: Local Models & FL POC  | Not Started     | —                                  |
-| **Phase 3**: Hardening & Validation | Not Started     | —                                  |
-| **Phase 4**: Gauteng Pilot Prep     | Not Started     | —                                  |
+| Phase                               | Status          | Key Milestone                                   |
+| ----------------------------------- | --------------- | ----------------------------------------------- |
+| **Phase 0**: Foundation & Learning  | Complete        | Docker env, gRPC link working                   |
+| **Phase 1**: Centralized Prototype  | **In Progress** | Gemini triage + React frontend + DB persistence |
+| **Phase 2**: Local Models & FL POC  | Not Started     | —                                               |
+| **Phase 3**: Hardening & Validation | Not Started     | —                                               |
+| **Phase 4**: Gauteng Pilot Prep     | Not Started     | —                                               |
 
 See [AG-docs/planning-log.md](AG-docs/planning-log.md) for session-by-session progress.
 

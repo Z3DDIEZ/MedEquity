@@ -41,7 +41,7 @@ public class TriageResultConfiguration : IEntityTypeConfiguration<TriageResult>
 
         builder.Property(tr => tr.Explanation)
             .HasColumnName("explanation")
-            .HasColumnType("jsonb")
+            .HasColumnType("text")
             .IsRequired();
 
         builder.Property(tr => tr.ModelVersion)
