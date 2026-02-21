@@ -1,6 +1,2 @@
-﻿namespace MedEquity.Core;
-
-public class Class1
-{
-
-}
+﻿// This file intentionally left empty.
+// Domain entities are in the Entities/, Enums/, and Common/ directories.

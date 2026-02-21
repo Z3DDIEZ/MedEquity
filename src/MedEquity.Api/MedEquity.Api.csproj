@@ -21,4 +21,8 @@
     <Protobuf Include="..\Protos\triage.proto" GrpcServices="Client" Link="Protos\triage.proto" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\MedEquity.Infrastructure\MedEquity.Infrastructure.csproj" />
+  </ItemGroup>
+
 </Project>
