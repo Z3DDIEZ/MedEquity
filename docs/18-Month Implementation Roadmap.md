@@ -547,19 +547,21 @@ Deliverable: symptom_codes.json + search script
 
 1. Create Google AI Studio account
 2. Generate API key
-3. Install Gemini SDK
+3. Install Google Gen AI SDK (unified)
    ```bash
-   pip install google-generativeai
+   pip install google-genai
    ```
 4. Test basic completion
 
    ```python
-   import google.generativeai as genai
+   from google import genai
 
-   genai.configure(api_key='YOUR_API_KEY')
-   model = genai.GenerativeModel('gemini-1.5-flash')
+   client = genai.Client(api_key='YOUR_API_KEY')
 
-   response = model.generate_content("What is triage?")
+   response = client.models.generate_content(
+       model='gemini-2.5-flash',
+       contents='What is triage?'
+   )
    print(response.text)
    ```
 
@@ -641,14 +643,16 @@ Deliverable: symptom_codes.json + search script
    ```python
    class GeminiTriageService:
        def __init__(self, api_key):
-           genai.configure(api_key=api_key)
-           self.model = genai.GenerativeModel('gemini-1.5-flash')
+           self.client = genai.Client(api_key=api_key)
 
        def analyze_symptoms(self, request: SymptomRequest) -> TriageResult:
            prompt = build_prompt(request)
 
            try:
-               response = self.model.generate_content(prompt)
+               response = self.client.models.generate_content(
+                   model='gemini-2.5-flash',
+                   contents=prompt
+               )
                result = parse_and_validate(response.text)
                return result
            except Exception as e:
@@ -669,6 +673,7 @@ Deliverable: symptom_codes.json + search script
    ```
 
 3. Call from .NET API
+
    ```csharp
    public class TriageController : ControllerBase
    {
@@ -897,6 +902,7 @@ Deliverable: symptom_codes.json + search script
 
 2. Queue high-stakes cases for review
 3. Log nurse decisions
+
    ```csharp
    public class NurseReviewService
    {
@@ -1072,6 +1078,7 @@ Deliverable: symptom_codes.json + search script
    ```
 
 3. Test with mock proposals
+
    ```csharp
    [Fact]
    public void Governance_RejectsFairnessViolation()

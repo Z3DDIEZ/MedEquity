@@ -6,15 +6,26 @@ service TriageService {
   rpc AnalyzeSymptoms (SymptomRequest) returns (TriageResult);
 }
 
+message SymptomEntry {
+  string symptom_code = 1;
+  int32 severity = 2;
+  int32 duration_hours = 3;
+}
+
 message SymptomRequest {
-  repeated string symptom_codes = 1;
-  repeated int32 severities = 2;
-  string age_range = 3;
-  string sex = 4;
+  repeated SymptomEntry symptoms = 1;
+  string age_range = 2;
+  string sex = 3;
+  string geography = 4;
 }
 
 message TriageResult {
   string care_level = 1;
   float confidence = 2;
   string explanation = 3;
+  string primary_concern = 4;
+  string reasoning = 5;
+  repeated string red_flags = 6;
+  repeated string next_steps = 7;
+  string model_version = 8;
 }
