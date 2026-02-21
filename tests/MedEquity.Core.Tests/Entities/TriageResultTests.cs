@@ -1,6 +1,7 @@
 using FluentAssertions;
 using MedEquity.Core.Entities;
 using MedEquity.Core.Enums;
+using Xunit;
 
 namespace MedEquity.Core.Tests.Entities;
 

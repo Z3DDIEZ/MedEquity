@@ -1,5 +1,6 @@
 using FluentAssertions;
 using MedEquity.Core.Entities;
+using Xunit;
 
 namespace MedEquity.Core.Tests.Entities;
 
