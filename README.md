@@ -1,46 +1,54 @@
 # MedEquity: Federated Healthcare Triage Assistant
 
-**Status**: Phase 0 Complete / Phase 1 (Centralized Prototype) In Progress
+**Status**: Phase 1 (Centralized Prototype) — Domain Models Complete  
 **Author**: Zawadi MC Nyachiya  
-**Version**: 0.2.0
+**Version**: 0.3.0
 
 ---
 
-## 🏥 Mission
-MedEquity is a **federated healthcare triage assistant** designed to route patients to appropriate care levels (Emergency, Urgent Care, Self-Care) while actively measuring and reducing health disparities. 
+## Mission
+
+MedEquity is a **federated healthcare triage assistant** designed to route patients to appropriate care levels (Emergency, Urgent Care, Self-Care) while actively measuring and reducing health disparities.
 
 It uses a **Privacy-First** architecture where patient data NEVER leaves the local clinic node.
 
 ---
 
-## 🏗️ Architecture (The A.N.T. System)
+## Architecture (The A.N.T. System)
+
 MedEquity follows the **3-Layer B.L.A.S.T.** protocol:
 
 ### 1. **Regional Nodes (The Edge)**
-*   **Tech**: .NET 8 Web API + PostgreSQL
-*   **Role**: Hosts patient data, runs local Triage Engine.
-*   **Privacy**: Data retention < 7 days. No PII stored.
+
+- **Tech**: .NET 9 Web API + PostgreSQL + EF Core 9
+- **Role**: Hosts patient data, runs local Triage Engine.
+- **Privacy**: Data retention < 7 days. No PII stored.
 
 ### 2. **Central Coordinator (The Brain)**
-*   **Tech**: Python + Flower (Federated Learning)
-*   **Role**: Aggregates encrypted model parameters from nodes to improve global intelligence without seeing patient data.
+
+- **Tech**: Python + Flower (Federated Learning)
+- **Role**: Aggregates encrypted model parameters from nodes to improve global intelligence without seeing patient data.
 
 ### 3. **Governance Layer (The Conscience)**
-*   **Tech**: Multi-Stakeholder Agent Voting (.NET)
-*   **Role**: Automated agents (Patient, Provider, Public Health) vote on all model updates based on fairness metrics.
+
+- **Tech**: Multi-Stakeholder Agent Voting (.NET)
+- **Role**: Automated agents (Patient, Provider, Public Health) vote on all model updates based on fairness metrics.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
-*   **Docker Desktop** (Required for local simulation)
-*   **.NET 9 SDK**
-*   **Python 3.11+**
-*   **Gemini API Key**: You need a Google Gemini API key for the centralized prototype capabilities.
+
+- **Docker Desktop** (Required for local simulation)
+- **.NET 9 SDK**
+- **Python 3.11+**
+- **Gemini API Key**: You need a Google Gemini API key for the centralized prototype capabilities.
 
 ### Installation
+
 1.  **Clone the Architecture**:
+
     ```bash
     git clone <repo>
     cd MedEquity
@@ -48,24 +56,29 @@ MedEquity follows the **3-Layer B.L.A.S.T.** protocol:
 
 2.  **Configure Environment**:
     Create a `.env` file in the `MedEquity` root directory (same level as `docker-compose.yml`) and add your API key:
+
     ```env
     GEMINI_API_KEY=your_api_key_here
     ```
 
 3.  **Start the Simulation Environment**:
+
     > **Note:** Ensure Docker Desktop is running!
+
     ```bash
     docker-compose up --build
     ```
-    This spins up:
-    *   `api`: .NET Gateway (Port 5000)
-    *   `ml_service`: Python Triage Engine (Port 8000)
-    *   `postgres`: Local Database
-    *   `redis`: Cache
 
-3.  **Verify the Link**:
+    This spins up:
+    - `api`: .NET Gateway (Port 5000)
+    - `ml_service`: Python Triage Engine (Port 8000)
+    - `postgres`: Local Database
+    - `redis`: Cache
+
+4.  **Verify the Link**:
     Navigate to `http://localhost:5000/test-link`.
     You should see:
+
     ```json
     {
       "status": "Connected",
@@ -76,21 +89,49 @@ MedEquity follows the **3-Layer B.L.A.S.T.** protocol:
     }
     ```
 
+5.  **Run Tests**:
+    ```bash
+    dotnet test --verbosity normal
+    ```
+    Expected: 51 tests passing (domain entity validation).
+
 ---
 
-## 📂 Project Structure
+## Project Structure
+
 ```
 MedEquity/
 ├── src/
-│   ├── MedEquity.Api/        # .NET 9 API Gateway & Node Logic
-│   ├── MedEquity.Core/       # Shared Domain Models
-│   ├── MedEquity.Governance/ # Stakeholder Voting Agents
-│   ├── MedEquity.ML/         # Python Service (Federated Learning)
-│   └── Protos/               # gRPC Contracts (triage.proto)
-├── docs/                     # Architectural Documentation
-├── docker-compose.yml        # Orchestration
-└── README.md                 # You are here
+│   ├── MedEquity.Api/            # .NET 9 API Gateway & Node Logic
+│   ├── MedEquity.Core/           # Domain Models (zero dependencies)
+│   │   ├── Common/               # Result<T> type
+│   │   ├── Entities/             # PatientSession, Symptom, TriageResult
+│   │   └── Enums/                # CareLevel, AutomationTier
+│   ├── MedEquity.Governance/     # Stakeholder Voting Agents
+│   ├── MedEquity.Infrastructure/ # EF Core 9 + PostgreSQL persistence
+│   │   └── Data/                 # DbContext + entity configurations
+│   ├── MedEquity.ML/             # Python Service (gRPC + Gemini)
+│   └── Protos/                   # gRPC Contracts (triage.proto)
+├── tests/
+│   └── MedEquity.Core.Tests/     # xUnit domain entity tests (51 tests)
+├── docs/                         # Architectural Documentation
+├── AG-docs/                      # Agent docs + Planning Log
+├── docker-compose.yml            # Orchestration
+└── README.md                     # You are here
 ```
 
-## 📜 License
+## Development Progress
+
+| Phase                               | Status          | Key Milestone                      |
+| ----------------------------------- | --------------- | ---------------------------------- |
+| **Phase 0**: Foundation & Learning  | Complete        | Docker env, gRPC link working      |
+| **Phase 1**: Centralized Prototype  | **In Progress** | Domain models + DB schema complete |
+| **Phase 2**: Local Models & FL POC  | Not Started     | —                                  |
+| **Phase 3**: Hardening & Validation | Not Started     | —                                  |
+| **Phase 4**: Gauteng Pilot Prep     | Not Started     | —                                  |
+
+See [AG-docs/planning-log.md](AG-docs/planning-log.md) for session-by-session progress.
+
+## License
+
 Private Research Project for Portfolio.
