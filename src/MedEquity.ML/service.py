@@ -35,9 +35,8 @@ class TriageServicer(triage_pb2_grpc.TriageServiceServicer):
 
     def AnalyzeSymptoms(self, request, context):
         logger.info(
-            "Received triage request: age=%s, sex=%s, geography=%s, symptoms=%d",
+            "Received triage request: age=%s, geography=%s, symptoms=%d",
             request.age_range,
-            request.sex,
             request.geography,
             len(request.symptoms),
         )

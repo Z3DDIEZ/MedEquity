@@ -2,36 +2,35 @@ name: .NET CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'src/**/*.cs'
-      - 'src/**/*.csproj'
-      - '*.sln'
+      - "src/**/*.cs"
+      - "src/**/*.csproj"
+      - "*.sln"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'src/**/*.cs'
-      - 'src/**/*.csproj'
-      - '*.sln'
+      - "src/**/*.cs"
+      - "src/**/*.csproj"
+      - "*.sln"
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 9.0.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
 
-    - name: Restore dependencies
-      run: dotnet restore MedEquity.sln
+      - name: Restore dependencies
+        run: dotnet restore MedEquity.sln
 
-    - name: Build
-      run: dotnet build MedEquity.sln --no-restore --configuration Release
+      - name: Build
+        run: dotnet build MedEquity.sln --no-restore --configuration Release
 
-    - name: Test
-      run: dotnet test MedEquity.sln --no-build --verbosity normal
+      - name: Test
+        run: dotnet test MedEquity.sln --no-build --verbosity normal --configuration Release
