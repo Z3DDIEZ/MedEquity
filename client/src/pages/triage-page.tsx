@@ -1,36 +1,87 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { SYMPTOM_CATEGORIES, DURATION_PRESETS, formatDuration } from "../types";
-import type { SymptomEntry, VitalSigns } from "../types";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  SYMPTOM_CATEGORIES,
+  DURATION_PRESETS,
+  BODY_REGION_SYMPTOM_MAP,
+  formatDuration,
+} from "../types";
+import type { SymptomEntry, VitalSigns, BodyRegion } from "../types";
 import { analyzeSymptoms } from "../api";
+import HumanBodyMap from "../components/human-body-map";
 
-const STEP_LABELS = ["Info", "Symptoms", "Details", "Review"];
+/* ── Animation variants ── */
+
+const panelVariants = {
+  hidden: { opacity: 0, y: 16 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: "easeOut" as const } },
+  exit: { opacity: 0, y: -12, transition: { duration: 0.2 } },
+};
+
+const chipVariants = {
+  hidden: { opacity: 0, scale: 0.85 },
+  visible: { opacity: 1, scale: 1, transition: { duration: 0.2 } },
+  exit: { opacity: 0, scale: 0.85, transition: { duration: 0.15 } },
+};
 
 /**
- * 4-step symptom intake wizard:
- *   1. Demographics
- *   2. Symptom selection (grouped + searchable)
- *   3. Severity, duration, optional vitals
- *   4. Review & submit
+ * Determines the ambient glow CSS color based on the maximum
+ * severity value across all selected symptoms.
  *
- * Submit only fires on explicit button click at step 4.
+ * @param symptoms - The currently selected symptoms with severity values.
+ * @returns A CSS rgba string for the ambient glow overlay.
  */
-export default function TriagePage() {
+function getAmbientGlow(symptoms: SymptomEntry[]): string {
+  if (symptoms.length === 0) return "rgba(45, 212, 191, 0.04)";
+  const maxSeverity = Math.max(...symptoms.map((s) => s.severity));
+  if (maxSeverity <= 3) return "rgba(34, 197, 94, 0.06)";
+  if (maxSeverity <= 6) return "rgba(245, 158, 11, 0.06)";
+  return "rgba(239, 68, 68, 0.07)";
+}
+
+/**
+ * Severity color class based on value.
+ */
+function severityClass(val: number): string {
+  if (val <= 3) return "severity-low";
+  if (val <= 6) return "severity-medium";
+  return "severity-high";
+}
+
+/**
+ * MedEquity Triage Dashboard — Hybrid Glassmorphic UI.
+ *
+ * Single-page layout with:
+ *   - Compact demographics row
+ *   - Interactive body map + searchable symptom chips
+ *   - Severity / duration sliders with ambient glow
+ *   - Floating "Analyze" FAB
+ */
+export default function TriagePage(): React.JSX.Element {
   const navigate = useNavigate();
 
-  const [step, setStep] = useState(1);
+  /* ── Demographics state ── */
   const [ageRange, setAgeRange] = useState("");
   const [sex, setSex] = useState("");
   const [geography, setGeography] = useState("");
+
+  /* ── Symptom state ── */
   const [selectedSymptoms, setSelectedSymptoms] = useState<SymptomEntry[]>([]);
-  const [vitals, setVitals] = useState<VitalSigns>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeRegion, setActiveRegion] = useState<BodyRegion | null>(null);
+
+  /* ── Vitals state ── */
+  const [vitals, setVitals] = useState<VitalSigns>({});
+  const [showVitals, setShowVitals] = useState(false);
+
+  /* ── UI state ── */
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /* ── Symptom helpers ── */
 
-  function toggleSymptom(code: string, label: string) {
+  function toggleSymptom(code: string, label: string): void {
     setSelectedSymptoms((prev) => {
       const exists = prev.find((s) => s.symptomCode === code);
       if (exists) return prev.filter((s) => s.symptomCode !== code);
@@ -41,64 +92,74 @@ export default function TriagePage() {
     });
   }
 
-  function updateSeverity(code: string, severity: number) {
+  function updateSeverity(code: string, severity: number): void {
     setSelectedSymptoms((prev) =>
       prev.map((s) => (s.symptomCode === code ? { ...s, severity } : s)),
     );
   }
 
-  function updateDuration(code: string, durationHours: number) {
+  function updateDuration(code: string, durationHours: number): void {
     setSelectedSymptoms((prev) =>
       prev.map((s) => (s.symptomCode === code ? { ...s, durationHours } : s)),
     );
   }
 
-  /** Severity color class based on value */
-  function severityClass(val: number): string {
-    if (val <= 3) return "severity-low";
-    if (val <= 6) return "severity-medium";
-    return "severity-high";
+  function removeSymptom(code: string): void {
+    setSelectedSymptoms((prev) => prev.filter((s) => s.symptomCode !== code));
   }
 
-  /* ── Filtered symptoms for search ── */
+  /* ── Filtered symptoms (body region + search) ── */
 
   const filteredCategories = useMemo(() => {
-    if (!searchQuery.trim()) return SYMPTOM_CATEGORIES;
-    const q = searchQuery.toLowerCase();
-    return SYMPTOM_CATEGORIES.map((cat) => ({
-      ...cat,
-      symptoms: cat.symptoms.filter((s) => s.label.toLowerCase().includes(q)),
-    })).filter((cat) => cat.symptoms.length > 0);
-  }, [searchQuery]);
+    let cats = SYMPTOM_CATEGORIES;
 
-  /* ── Navigation ── */
+    // Filter by body region
+    if (activeRegion) {
+      const regionCodes = BODY_REGION_SYMPTOM_MAP[activeRegion];
+      cats = cats
+        .map((cat) => ({
+          ...cat,
+          symptoms: cat.symptoms.filter((s) => regionCodes.includes(s.code)),
+        }))
+        .filter((cat) => cat.symptoms.length > 0);
+    }
 
-  function handleNext() {
-    setError(null);
-    if (step === 1 && (!ageRange || !sex || !geography)) {
-      setError("Please fill in all fields to continue.");
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      cats = cats
+        .map((cat) => ({
+          ...cat,
+          symptoms: cat.symptoms.filter((s) =>
+            s.label.toLowerCase().includes(q),
+          ),
+        }))
+        .filter((cat) => cat.symptoms.length > 0);
+    }
+
+    return cats;
+  }, [searchQuery, activeRegion]);
+
+  /* ── Validation ── */
+
+  function validate(): string | null {
+    if (!ageRange || !sex || !geography) {
+      return "Please fill in all demographic fields above.";
+    }
+    if (selectedSymptoms.length === 0) {
+      return "Please select at least one symptom.";
+    }
+    return null;
+  }
+
+  /* ── Submit ── */
+
+  async function handleSubmit(): Promise<void> {
+    const msg = validate();
+    if (msg) {
+      setError(msg);
       return;
     }
-    if (step === 2 && selectedSymptoms.length === 0) {
-      setError("Please select at least one symptom.");
-      return;
-    }
-    setStep((s) => s + 1);
-  }
-
-  function handleBack() {
-    setError(null);
-    setStep((s) => s - 1);
-  }
-
-  function goToStep(target: number) {
-    setError(null);
-    setStep(target);
-  }
-
-  /* ── Submit — only fires from the Review step button ── */
-
-  async function handleSubmit() {
     setError(null);
     setLoading(true);
     try {
@@ -128,57 +189,36 @@ export default function TriagePage() {
     }
   }
 
+  /* ── Ambient glow color ── */
+  const ambientGlow = getAmbientGlow(selectedSymptoms);
+
   /* ── Render ── */
 
   return (
-    <main className="triage-page">
-      <h1>Symptom Check</h1>
-      <p className="page-description">
-        Answer a few guided questions so we can recommend the right care
-        setting.
-      </p>
+    <main className="triage-dashboard">
+      {/* Ambient background glow */}
+      <div
+        className="triage-ambient"
+        style={{ background: `radial-gradient(ellipse at 50% 20%, ${ambientGlow}, transparent 70%)` }}
+      />
 
-      {/* Progress */}
-      <div className="wizard-progress">
-        {[1, 2, 3, 4].map((num, i) => (
-          <span key={num} style={{ display: "contents" }}>
-            <div
-              className={`step-indicator ${step === num ? "active" : ""} ${step > num ? "completed" : ""}`}
-            >
-              {step > num ? (
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                num
-              )}
-              <span className="step-label">{STEP_LABELS[i]}</span>
-            </div>
-            {num < 4 && (
-              <div
-                className={`step-connector ${step > num ? "completed" : ""}`}
-              />
-            )}
-          </span>
-        ))}
-      </div>
+      {/* Header */}
+      <header className="triage-header">
+        <h1>Symptom Check</h1>
+        <p className="triage-subtitle">
+          Describe your symptoms and we'll recommend the right care setting.
+        </p>
+      </header>
 
-      {/*
-        Use a <div> instead of <form> to prevent Enter-key submission.
-        Submit is handled by explicit button onClick at step 4.
-      */}
-      <div className="triage-form">
+      {/* Error banner */}
+      <AnimatePresence>
         {error && (
-          <div className="error-message">
+          <motion.div
+            className="error-message"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
             <svg
               width="16"
               height="16"
@@ -194,73 +234,91 @@ export default function TriagePage() {
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             {error}
-          </div>
+          </motion.div>
         )}
+      </AnimatePresence>
 
-        {/* ═════ STEP 1: Demographics ═════ */}
-        {step === 1 && (
-          <div className="step-content" key="step-1">
-            <h2 className="step-title">Your Information</h2>
-            <div className="demographics">
-              <div className="input-group">
-                <label htmlFor="age-range">Age Range</label>
-                <select
-                  id="age-range"
-                  value={ageRange}
-                  onChange={(e) => setAgeRange(e.target.value)}
-                >
-                  <option value="">Select age range...</option>
-                  <option value="0-10">0 – 10 years</option>
-                  <option value="10-20">10 – 20 years</option>
-                  <option value="20-30">20 – 30 years</option>
-                  <option value="30-40">30 – 40 years</option>
-                  <option value="40-50">40 – 50 years</option>
-                  <option value="50-60">50 – 60 years</option>
-                  <option value="60-70">60 – 70 years</option>
-                  <option value="70+">70+ years</option>
-                </select>
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="sex">Sex at Birth</label>
-                <select
-                  id="sex"
-                  value={sex}
-                  onChange={(e) => setSex(e.target.value)}
-                >
-                  <option value="">Select...</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="geography">General Location</label>
-                <select
-                  id="geography"
-                  value={geography}
-                  onChange={(e) => setGeography(e.target.value)}
-                >
-                  <option value="">Select region...</option>
-                  <option value="Johannesburg Metro">Johannesburg Metro</option>
-                  <option value="Tshwane Metro">Tshwane Metro</option>
-                  <option value="Ekurhuleni Metro">Ekurhuleni Metro</option>
-                  <option value="eThekwini Metro">eThekwini Metro</option>
-                  <option value="Cape Town Metro">Cape Town Metro</option>
-                  <option value="Rural Gauteng">Rural Gauteng</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-            </div>
+      {/* ═══ SECTION 1: Demographics (compact row) ═══ */}
+      <motion.section
+        className="triage-section glass-panel"
+        variants={panelVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <h2 className="section-label">Your Information</h2>
+        <div className="demographics-row">
+          <div className="input-group">
+            <label htmlFor="age-range">Age Range</label>
+            <select
+              id="age-range"
+              value={ageRange}
+              onChange={(e) => setAgeRange(e.target.value)}
+            >
+              <option value="">Select...</option>
+              <option value="0-10">0 – 10 years</option>
+              <option value="10-20">10 – 20 years</option>
+              <option value="20-30">20 – 30 years</option>
+              <option value="30-40">30 – 40 years</option>
+              <option value="40-50">40 – 50 years</option>
+              <option value="50-60">50 – 60 years</option>
+              <option value="60-70">60 – 70 years</option>
+              <option value="70+">70+ years</option>
+            </select>
           </div>
-        )}
+          <div className="input-group">
+            <label htmlFor="sex">Sex at Birth</label>
+            <select
+              id="sex"
+              value={sex}
+              onChange={(e) => setSex(e.target.value)}
+            >
+              <option value="">Select...</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div className="input-group">
+            <label htmlFor="geography">Location</label>
+            <select
+              id="geography"
+              value={geography}
+              onChange={(e) => setGeography(e.target.value)}
+            >
+              <option value="">Select...</option>
+              <option value="Johannesburg Metro">Johannesburg Metro</option>
+              <option value="Tshwane Metro">Tshwane Metro</option>
+              <option value="Ekurhuleni Metro">Ekurhuleni Metro</option>
+              <option value="eThekwini Metro">eThekwini Metro</option>
+              <option value="Cape Town Metro">Cape Town Metro</option>
+              <option value="Rural Gauteng">Rural Gauteng</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+      </motion.section>
 
-        {/* ═════ STEP 2: Symptom Selection ═════ */}
-        {step === 2 && (
-          <div className="step-content" key="step-2">
-            <h2 className="step-title">What are your symptoms?</h2>
+      {/* ═══ SECTION 2: Symptom Selection (body map + chips) ═══ */}
+      <motion.section
+        className="triage-section glass-panel"
+        variants={panelVariants}
+        initial="hidden"
+        animate="visible"
+        transition={{ delay: 0.1 }}
+      >
+        <h2 className="section-label">What are your symptoms?</h2>
 
+        <div className="symptom-explorer">
+          {/* Left: body map */}
+          <div className="symptom-explorer-left">
+            <HumanBodyMap
+              activeRegion={activeRegion}
+              onRegionSelect={setActiveRegion}
+            />
+          </div>
+
+          {/* Right: search + symptom chips */}
+          <div className="symptom-explorer-right">
             {/* Search */}
             <div className="symptom-search-wrapper">
               <svg
@@ -286,55 +344,87 @@ export default function TriagePage() {
             </div>
 
             {/* Grouped chips */}
-            {filteredCategories.map((cat) => (
-              <div key={cat.category} className="symptom-category">
-                <div className="category-label">{cat.category}</div>
-                <div className="symptom-grid">
-                  {cat.symptoms.map((symptom) => {
-                    const isSelected = selectedSymptoms.some(
-                      (s) => s.symptomCode === symptom.code,
-                    );
-                    return (
-                      <button
-                        key={symptom.code}
-                        type="button"
-                        className={`symptom-chip ${isSelected ? "selected" : ""}`}
-                        onClick={() =>
-                          toggleSymptom(symptom.code, symptom.label)
-                        }
-                      >
-                        {symptom.label}
-                      </button>
-                    );
-                  })}
+            <div className="symptom-chip-area">
+              {filteredCategories.map((cat) => (
+                <div key={cat.category} className="symptom-category">
+                  <div className="category-label">{cat.category}</div>
+                  <div className="symptom-grid">
+                    <AnimatePresence mode="popLayout">
+                      {cat.symptoms.map((symptom) => {
+                        const isSelected = selectedSymptoms.some(
+                          (s) => s.symptomCode === symptom.code,
+                        );
+                        return (
+                          <motion.button
+                            key={symptom.code}
+                            layout
+                            variants={chipVariants}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                            type="button"
+                            className={`symptom-chip ${isSelected ? "selected" : ""}`}
+                            onClick={() =>
+                              toggleSymptom(symptom.code, symptom.label)
+                            }
+                          >
+                            {symptom.label}
+                          </motion.button>
+                        );
+                      })}
+                    </AnimatePresence>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
-            {filteredCategories.length === 0 && (
-              <p
-                style={{
-                  color: "var(--color-text-tertiary)",
-                  fontSize: "0.9rem",
-                  textAlign: "center",
-                  padding: "1rem 0",
-                }}
-              >
-                No symptoms match your search.
-              </p>
-            )}
+              {filteredCategories.length === 0 && (
+                <p className="empty-state">
+                  No symptoms match your{" "}
+                  {activeRegion ? "body region" : "search"}.
+                </p>
+              )}
+            </div>
           </div>
-        )}
+        </div>
+      </motion.section>
 
-        {/* ═════ STEP 3: Severity + Duration + Vitals ═════ */}
-        {step === 3 && (
-          <div className="step-content" key="step-3">
-            <h2 className="step-title">How severe are they?</h2>
+      {/* ═══ SECTION 3: Selected symptoms severity / duration ═══ */}
+      <AnimatePresence>
+        {selectedSymptoms.length > 0 && (
+          <motion.section
+            className="triage-section glass-panel"
+            variants={panelVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+          >
+            <h2 className="section-label">
+              How severe are they?
+              <span className="section-badge">{selectedSymptoms.length}</span>
+            </h2>
 
             {selectedSymptoms.map((symptom) => (
-              <div key={symptom.symptomCode} className="symptom-detail">
-                <h4>{symptom.label}</h4>
+              <motion.div
+                key={symptom.symptomCode}
+                className="symptom-detail"
+                layout
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 12 }}
+              >
+                <div className="symptom-detail-header">
+                  <h4>{symptom.label}</h4>
+                  <button
+                    type="button"
+                    className="remove-symptom"
+                    onClick={() => removeSymptom(symptom.symptomCode)}
+                    aria-label={`Remove ${symptom.label ?? "symptom"}`}
+                  >
+                    ✕
+                  </button>
+                </div>
 
+                {/* Severity slider */}
                 <div className="slider-group">
                   <div className="slider-header">
                     <span>Severity</span>
@@ -358,6 +448,7 @@ export default function TriagePage() {
                   />
                 </div>
 
+                {/* Duration slider + presets */}
                 <div className="slider-group">
                   <div className="slider-header">
                     <span>Duration</span>
@@ -378,24 +469,12 @@ export default function TriagePage() {
                       )
                     }
                   />
-                  {/* Preset buttons */}
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: "0.35rem",
-                      marginTop: "0.5rem",
-                    }}
-                  >
+                  <div className="duration-presets">
                     {DURATION_PRESETS.map((p) => (
                       <button
                         key={p.value}
                         type="button"
-                        className={`symptom-chip ${symptom.durationHours === p.value ? "selected" : ""}`}
-                        style={{
-                          fontSize: "0.75rem",
-                          padding: "0.3rem 0.6rem",
-                        }}
+                        className={`duration-preset ${symptom.durationHours === p.value ? "selected" : ""}`}
                         onClick={() =>
                           updateDuration(symptom.symptomCode, p.value)
                         }
@@ -405,246 +484,164 @@ export default function TriagePage() {
                     ))}
                   </div>
                 </div>
-              </div>
+              </motion.div>
             ))}
-
-            {/* Optional vitals */}
-            <div className="vitals-section">
-              <div className="vitals-title">
-                Optional: Vital Signs (if available)
-              </div>
-              <div className="vitals-grid">
-                <div className="vital-input">
-                  <label htmlFor="temperature">Temperature (°C)</label>
-                  <input
-                    id="temperature"
-                    type="number"
-                    step="0.1"
-                    min="35"
-                    max="42"
-                    placeholder="e.g. 37.5"
-                    value={vitals.temperature ?? ""}
-                    onChange={(e) =>
-                      setVitals({
-                        ...vitals,
-                        temperature: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div className="vital-input">
-                  <label htmlFor="heart-rate">Heart Rate (bpm)</label>
-                  <input
-                    id="heart-rate"
-                    type="number"
-                    min="30"
-                    max="220"
-                    placeholder="e.g. 72"
-                    value={vitals.heartRate ?? ""}
-                    onChange={(e) =>
-                      setVitals({
-                        ...vitals,
-                        heartRate: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div className="vital-input">
-                  <label htmlFor="bp-systolic">Systolic BP</label>
-                  <input
-                    id="bp-systolic"
-                    type="number"
-                    min="60"
-                    max="250"
-                    placeholder="e.g. 120"
-                    value={vitals.systolicBP ?? ""}
-                    onChange={(e) =>
-                      setVitals({
-                        ...vitals,
-                        systolicBP: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      })
-                    }
-                  />
-                </div>
-                <div className="vital-input">
-                  <label htmlFor="bp-diastolic">Diastolic BP</label>
-                  <input
-                    id="bp-diastolic"
-                    type="number"
-                    min="30"
-                    max="150"
-                    placeholder="e.g. 80"
-                    value={vitals.diastolicBP ?? ""}
-                    onChange={(e) =>
-                      setVitals({
-                        ...vitals,
-                        diastolicBP: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          </motion.section>
         )}
+      </AnimatePresence>
 
-        {/* ═════ STEP 4: Review & Submit ═════ */}
-        {step === 4 && (
-          <div className="step-content" key="step-4">
-            <h2 className="step-title">Review your information</h2>
+      {/* ═══ SECTION 4: Optional Vitals ═══ */}
+      <motion.section
+        className="triage-section glass-panel"
+        variants={panelVariants}
+        initial="hidden"
+        animate="visible"
+        transition={{ delay: 0.2 }}
+      >
+        <button
+          type="button"
+          className="vitals-toggle"
+          onClick={() => setShowVitals(!showVitals)}
+        >
+          <h2 className="section-label" style={{ marginBottom: 0 }}>
+            Vital Signs
+            <span className="section-optional">Optional</span>
+          </h2>
+          <svg
+            className={`vitals-chevron ${showVitals ? "open" : ""}`}
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
 
-            {/* Demographics summary */}
-            <div className="review-section">
-              <div className="review-header">
-                <h4>Demographics</h4>
-                <button
-                  type="button"
-                  className="review-edit"
-                  onClick={() => goToStep(1)}
-                >
-                  Edit
-                </button>
+        <AnimatePresence>
+          {showVitals && (
+            <motion.div
+              className="vitals-grid"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              style={{ overflow: "hidden" }}
+            >
+              <div className="vital-input">
+                <label htmlFor="temperature">Temperature (°C)</label>
+                <input
+                  id="temperature"
+                  type="number"
+                  step="0.1"
+                  min="35"
+                  max="42"
+                  placeholder="e.g. 37.5"
+                  value={vitals.temperature ?? ""}
+                  onChange={(e) =>
+                    setVitals({
+                      ...vitals,
+                      temperature: e.target.value
+                        ? Number(e.target.value)
+                        : undefined,
+                    })
+                  }
+                />
               </div>
-              <div className="review-row">
-                <span className="review-label">Age</span>
-                <span className="review-value">{ageRange}</span>
+              <div className="vital-input">
+                <label htmlFor="heart-rate">Heart Rate (bpm)</label>
+                <input
+                  id="heart-rate"
+                  type="number"
+                  min="30"
+                  max="220"
+                  placeholder="e.g. 72"
+                  value={vitals.heartRate ?? ""}
+                  onChange={(e) =>
+                    setVitals({
+                      ...vitals,
+                      heartRate: e.target.value
+                        ? Number(e.target.value)
+                        : undefined,
+                    })
+                  }
+                />
               </div>
-              <div className="review-row">
-                <span className="review-label">Sex</span>
-                <span className="review-value">{sex}</span>
+              <div className="vital-input">
+                <label htmlFor="bp-systolic">Systolic BP</label>
+                <input
+                  id="bp-systolic"
+                  type="number"
+                  min="60"
+                  max="250"
+                  placeholder="e.g. 120"
+                  value={vitals.systolicBP ?? ""}
+                  onChange={(e) =>
+                    setVitals({
+                      ...vitals,
+                      systolicBP: e.target.value
+                        ? Number(e.target.value)
+                        : undefined,
+                    })
+                  }
+                />
               </div>
-              <div className="review-row">
-                <span className="review-label">Location</span>
-                <span className="review-value">{geography}</span>
+              <div className="vital-input">
+                <label htmlFor="bp-diastolic">Diastolic BP</label>
+                <input
+                  id="bp-diastolic"
+                  type="number"
+                  min="30"
+                  max="150"
+                  placeholder="e.g. 80"
+                  value={vitals.diastolicBP ?? ""}
+                  onChange={(e) =>
+                    setVitals({
+                      ...vitals,
+                      diastolicBP: e.target.value
+                        ? Number(e.target.value)
+                        : undefined,
+                    })
+                  }
+                />
               </div>
-            </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.section>
 
-            {/* Symptoms summary */}
-            <div className="review-section">
-              <div className="review-header">
-                <h4>Symptoms</h4>
-                <button
-                  type="button"
-                  className="review-edit"
-                  onClick={() => goToStep(2)}
-                >
-                  Edit
-                </button>
-              </div>
-              <div className="review-chips">
-                {selectedSymptoms.map((s) => (
-                  <span key={s.symptomCode} className="review-chip">
-                    {s.label}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Details summary */}
-            <div className="review-section">
-              <div className="review-header">
-                <h4>Severity &amp; Duration</h4>
-                <button
-                  type="button"
-                  className="review-edit"
-                  onClick={() => goToStep(3)}
-                >
-                  Edit
-                </button>
-              </div>
-              {selectedSymptoms.map((s) => (
-                <div key={s.symptomCode} className="review-row">
-                  <span className="review-label">{s.label}</span>
-                  <span className="review-value">
-                    {s.severity}/10 · {formatDuration(s.durationHours)}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Vitals summary (only if entered) */}
-            {(vitals.temperature || vitals.heartRate || vitals.systolicBP) && (
-              <div className="review-section">
-                <div className="review-header">
-                  <h4>Vital Signs</h4>
-                  <button
-                    type="button"
-                    className="review-edit"
-                    onClick={() => goToStep(3)}
-                  >
-                    Edit
-                  </button>
-                </div>
-                {vitals.temperature && (
-                  <div className="review-row">
-                    <span className="review-label">Temperature</span>
-                    <span className="review-value">{vitals.temperature}°C</span>
-                  </div>
-                )}
-                {vitals.heartRate && (
-                  <div className="review-row">
-                    <span className="review-label">Heart Rate</span>
-                    <span className="review-value">{vitals.heartRate} bpm</span>
-                  </div>
-                )}
-                {vitals.systolicBP && vitals.diastolicBP && (
-                  <div className="review-row">
-                    <span className="review-label">Blood Pressure</span>
-                    <span className="review-value">
-                      {vitals.systolicBP}/{vitals.diastolicBP} mmHg
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+      {/* ═══ Floating Analyze Button ═══ */}
+      <motion.button
+        className="analyze-fab"
+        onClick={handleSubmit}
+        disabled={loading}
+        whileHover={{ scale: 1.04, y: -2 }}
+        whileTap={{ scale: 0.97 }}
+      >
+        {loading ? (
+          <span className="loading-pulse">Analyzing</span>
+        ) : (
+          <>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
+            Get Recommendation
+          </>
         )}
-
-        {/* Navigation */}
-        <div className="wizard-actions">
-          {step > 1 && (
-            <button
-              type="button"
-              className="action-button secondary"
-              onClick={handleBack}
-              disabled={loading}
-            >
-              Back
-            </button>
-          )}
-
-          {step < 4 ? (
-            <button
-              type="button"
-              className="action-button primary"
-              onClick={handleNext}
-            >
-              Continue
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="action-button primary"
-              onClick={handleSubmit}
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="loading-pulse">Analyzing</span>
-              ) : (
-                "Get Recommendation"
-              )}
-            </button>
-          )}
-        </div>
-      </div>
+      </motion.button>
     </main>
   );
 }

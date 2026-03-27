@@ -79,6 +79,21 @@ export const SYMPTOM_CATEGORIES: {
 export const COMMON_SYMPTOMS: { code: string; label: string }[] =
   SYMPTOM_CATEGORIES.flatMap((cat) => cat.symptoms);
 
+/** Body regions for the interactive silhouette */
+export type BodyRegion = "head" | "chest" | "abdomen" | "arms" | "legs";
+
+/**
+ * Maps each body region to symptom codes relevant to that area.
+ * "all" is a special key that disables filtering (show everything).
+ */
+export const BODY_REGION_SYMPTOM_MAP: Record<BodyRegion, string[]> = {
+  head: ["25064002", "3006004", "162076009", "386661006"],
+  chest: ["49727002", "267036007", "162397003"],
+  abdomen: ["21522001", "422587007"],
+  arms: ["68962001", "271807003"],
+  legs: ["68962001", "271807003"],
+};
+
 /** Human-readable duration presets */
 export const DURATION_PRESETS: { value: number; label: string }[] = [
   { value: 2, label: "A couple hours" },
